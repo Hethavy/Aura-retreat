@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <title>Aura Retreat Booking Calendar</title>
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     :root {
       --primary-green: #278143;
@@ -22,6 +23,14 @@
       max-width: 650px;
       margin: 40px auto;
       background: var(--accent-light);
+      color: #222;
+    }
+    @media (max-width: 800px) {
+      body { max-width: 100vw; margin: 0; }
+      #calendar, .modal-content { padding: 8px !important; }
+      h1 { font-size: 1.25rem; padding: .6rem; }
+      .modal-content { width: 98vw !important; min-width:unset; }
+      #summary-bar, #top-bar { flex-direction: column; gap: 6px; }
     }
     h1 {
       text-align: center;
@@ -35,30 +44,28 @@
       align-items: center;
       justify-content: space-between;
       margin: 28px 0 12px 0;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    #revenue-box, #monthly-revenue-box {
+      display: flex;
+      align-items: center;
+      border-radius: 8px;
+      padding: 12px 24px;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.10);
+      font-size: 18px;
+      font-weight: 500;
+      border: 1.5px solid var(--primary-green);
+      margin-bottom: 8px;
     }
     #revenue-box {
-      display: flex;
-      align-items: center;
       background: #e5f7ea;
-      border-radius: 8px;
-      padding: 12px 24px;
-      box-shadow: 0 1px 5px rgba(0,0,0,0.10);
-      font-size: 18px;
-      font-weight: 500;
       color: var(--primary-brown);
-      border: 1.5px solid var(--primary-green);
     }
     #monthly-revenue-box {
-      display: flex;
-      align-items: center;
       background: #e6ecfa;
-      border-radius: 8px;
-      padding: 12px 24px;
-      box-shadow: 0 1px 5px rgba(0,0,0,0.10);
-      font-size: 18px;
-      font-weight: 500;
       color: #2968b2;
-      border: 1.5px solid #2968b2;
+      border-color: #2968b2;
       margin-left: 15px;
     }
     #top-bar {
@@ -66,6 +73,8 @@
       align-items: center;
       justify-content: space-between;
       margin: 10px 0 16px 0;
+      flex-wrap: wrap;
+      gap: 6px;
     }
     #booked-count-circle {
       width: 48px;
@@ -105,6 +114,7 @@
       border-radius: 12px;
       box-shadow: 0 4px 24px rgba(134,101,67,0.08);
       border: 2px solid var(--primary-brown);
+      min-height: 380px;
     }
     .fc-daygrid-day.booked-mago, .fc-daygrid-day.booked-aura, .fc-daygrid-day.booked-other {
       position: relative;
@@ -199,6 +209,9 @@
       box-shadow: 0 2px 16px rgba(134,101,67,0.15);
       border: 2px solid var(--primary-brown);
     }
+    @media (max-width: 700px) {
+      .modal-content { padding: 12px !important; width: 99vw; }
+    }
     .modal-content h2 {
       margin-bottom: 14px;
       text-align: center;
@@ -277,7 +290,6 @@
     .detail-label { font-weight: bold; color: var(--primary-brown);}
     .details-row { margin-bottom: 10px; }
     .details-close { margin-top: 18px; width: 100%; }
-    /* Message Modal Styling */
     .modal-row.message-row {
       display: flex;
       flex-direction: column;
@@ -312,8 +324,7 @@
       </div>
     </div>
   </div>
-  <div id="calendar"></div>
-  <!-- Booking Modal -->
+  <div id="calendar"></div>  <!-- Booking Modal -->
   <div class="modal-bg" id="venueModal">
     <div class="modal-content">
       <h2 id="modalDate"></h2>
@@ -443,70 +454,91 @@
         <button type="submit">Sign In</button>
       </form>
     </div>
-  </div>
-  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
-  <script>
-    // ... existing code unchanged above ...
-    let bookingsByUser = {};
-    let activePhone = null;
+  </div>  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js";
+    import { getDatabase, ref, set, remove, onValue } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBiP3Hnb1hFcJYq3SQZSPH6_tZZa1XxmQ8",
+      authDomain: "aura-retreat.firebaseapp.com",
+      databaseURL: "https://aura-retreat-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "aura-retreat",
+      storageBucket: "aura-retreat.appspot.com",
+      messagingSenderId: "79646772116",
+      appId: "1:79646772116:web:c86bd72835874324b3dd81",
+      measurementId: "G-7L86KRLH0C"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    window.bookingsByUser = {};
+    window.activePhone = null;
     const FULL_ACCESS_NUMBERS = [
       '+919951168826',
       '+918639750269',
       '+918885555544'
     ];
-    function loadFromStorage() {
-      activePhone = localStorage.getItem("activePhone") || null;
-      try {
-        bookingsByUser = JSON.parse(localStorage.getItem("bookingsByUser")) || {};
-      } catch {
-        bookingsByUser = {};
+
+    const bookingsRef = ref(db, "bookings");
+    onValue(bookingsRef, (snapshot) => {
+      window.bookingsByUser = snapshot.val() || {};
+      if (typeof updateTopBar === "function") updateTopBar();
+      if (typeof calendar !== "undefined") calendar.render();
+      if (typeof updateDayCellClasses === "function") updateDayCellClasses();
+      if (typeof updateBookedCount === "function") updateBookedCount();
+      if (typeof updateRevenue === "function") updateRevenue();
+    });
+
+    window.setUserBookings = function(bk) {
+      if (!window.activePhone) return;
+      set(ref(db, `bookings/${encodeURIComponent(window.activePhone)}`), bk);
+    };
+    window.saveToStorage = function() {};
+    window.removeBooking = function(dateStr) {
+      if (window.isFullAccessUser && window.isFullAccessUser()) {
+        const owner = window.findBookingOwner(dateStr);
+        if (owner) remove(ref(db, `bookings/${encodeURIComponent(owner)}/${dateStr}`));
+      } else {
+        if (window.activePhone)
+          remove(ref(db, `bookings/${encodeURIComponent(window.activePhone)}/${dateStr}`));
       }
-    }
-    function saveToStorage() {
-      localStorage.setItem("activePhone", activePhone || "");
-      localStorage.setItem("bookingsByUser", JSON.stringify(bookingsByUser));
-    }
-    function isSignedIn() { return !!activePhone; }
-    function getUserBookings() {
-      if (!activePhone) return {};
-      if (isFullAccessUser()) {
+    };
+    window.doSignIn = function(phone) {
+      window.activePhone = phone;
+      if (!window.bookingsByUser[window.activePhone]) window.bookingsByUser[window.activePhone] = {};
+      document.getElementById('signinModal').classList.remove("show");
+      if (typeof updateTopBar === "function") updateTopBar();
+      if (typeof calendar !== "undefined") calendar.render();
+      if (typeof updateDayCellClasses === "function") updateDayCellClasses();
+      if (typeof updateBookedCount === "function") updateBookedCount();
+      if (typeof updateRevenue === "function") updateRevenue();
+    };
+    window.isSignedIn = function() { return !!window.activePhone; };
+    window.isFullAccessUser = function() { return FULL_ACCESS_NUMBERS.includes(window.activePhone); };
+    window.getUserBookings = function() {
+      if (!window.activePhone) return {};
+      if (window.isFullAccessUser()) {
         let merged = {};
-        Object.values(bookingsByUser).forEach(userBks => {
-          Object.entries(userBks).forEach(([date, booking]) => {
-            merged[date] = Object.assign({}, booking, {__owner: true});
-          });
+        Object.values(window.bookingsByUser).forEach(userBks => {
+          if (userBks)
+            Object.entries(userBks).forEach(([date, booking]) => {
+              merged[date] = Object.assign({}, booking, {__owner: true});
+            });
         });
         return merged;
       }
-      return bookingsByUser[activePhone] || {};
-    }
-    function setUserBookings(bk) {
-      if (!activePhone) return;
-      bookingsByUser[activePhone] = bk;
-      saveToStorage();
-    }
-    function isFullAccessUser() {
-      return FULL_ACCESS_NUMBERS.includes(activePhone);
-    }
-    function findBookingOwner(dateStr) {
-      for (const phone in bookingsByUser) {
-        if (bookingsByUser[phone][dateStr]) return phone;
+      return window.bookingsByUser[window.activePhone] || {};
+    };
+    window.findBookingOwner = function(dateStr) {
+      for (const phone in window.bookingsByUser) {
+        if (window.bookingsByUser[phone] && window.bookingsByUser[phone][dateStr]) return phone;
       }
       return null;
-    }
-    function removeBooking(dateStr) {
-      if (isFullAccessUser()) {
-        const owner = findBookingOwner(dateStr);
-        if (owner && bookingsByUser[owner][dateStr]) {
-          delete bookingsByUser[owner][dateStr];
-        }
-      } else {
-        if (bookingsByUser[activePhone] && bookingsByUser[activePhone][dateStr]) {
-          delete bookingsByUser[activePhone][dateStr];
-        }
-      }
-      saveToStorage();
-    }
+    };
+  </script>
+  <script>
+    // Main calendar and booking logic starts here    // ---- Calendar, Booking, UI, and WhatsApp Logic ----
     const summaryBar = document.getElementById("summary-bar");
     const revenueBox = document.getElementById("revenue-box");
     const totalRevenue = document.getElementById("total-revenue");
@@ -581,9 +613,7 @@
       price += Number(banquet) * 1000;
       return price;
     }
-    // Custom badge rendering: includes name, price and advance (just number, no "Adv.")
     function renderBookingBadges(cell, booking) {
-      // Remove previous badges
       let nameBadge = cell.querySelector('.booking-name-badge');
       if (nameBadge) nameBadge.remove();
       let priceBadge = cell.querySelector('.booking-price-badge');
@@ -591,13 +621,11 @@
       let advanceBadge = cell.querySelector('.booking-advance-badge');
       if (advanceBadge) advanceBadge.remove();
 
-      // Name badge (top)
       nameBadge = document.createElement("div");
       nameBadge.className = "booking-name-badge";
       nameBadge.textContent = booking.booker || "";
       cell.prepend(nameBadge);
 
-      // Price badge (middle, only if price)
       if (booking.price) {
         priceBadge = document.createElement("div");
         priceBadge.className = "booking-price-badge";
@@ -605,7 +633,6 @@
         cell.appendChild(priceBadge);
       }
 
-      // Advance badge (bottom, only if nonzero)
       if (booking.advance && booking.advance !== 0) {
         advanceBadge = document.createElement("div");
         advanceBadge.className = "booking-advance-badge";
@@ -617,12 +644,12 @@
       initialView: 'dayGridMonth',
       selectable: true,
       select: function(info) {
-        if (!isSignedIn()) {
+        if (!window.isSignedIn()) {
           showSigninModal();
           return;
         }
         const dateStr = info.startStr;
-        const userBookings = getUserBookings();
+        const userBookings = window.getUserBookings();
         if (userBookings[dateStr]) {
           showDetailsModal(dateStr);
         } else {
@@ -632,8 +659,8 @@
       dayCellDidMount: function(arg) {
         const dateStr = arg.date.toISOString().slice(0,10);
         arg.el.classList.remove('booked-mago', 'booked-aura', 'booked-other');
-        if (!isSignedIn()) return;
-        const userBookings = getUserBookings();
+        if (!window.isSignedIn()) return;
+        const userBookings = window.getUserBookings();
         if (userBookings[dateStr]) {
           const venue = userBookings[dateStr].venue;
           if (venue === 'mago') arg.el.classList.add('booked-mago');
@@ -641,7 +668,6 @@
           if (venue === 'other') arg.el.classList.add('booked-other');
           renderBookingBadges(arg.el, userBookings[dateStr]);
         } else {
-          // Remove any badges if not booked
           let nameBadge = arg.el.querySelector('.booking-name-badge');
           if (nameBadge) nameBadge.remove();
           let priceBadge = arg.el.querySelector('.booking-price-badge');
@@ -659,8 +685,8 @@
       }
     });
     function updateDayCellClasses() {
-      if (!isSignedIn()) return;
-      const userBookings = getUserBookings();
+      if (!window.isSignedIn()) return;
+      const userBookings = window.getUserBookings();
       document.querySelectorAll('.fc-daygrid-day').forEach(cell => {
         cell.classList.remove('booked-mago', 'booked-aura', 'booked-other');
         const dateStr = cell.getAttribute('data-date');
@@ -671,7 +697,6 @@
           if (venue === 'other') cell.classList.add('booked-other');
           renderBookingBadges(cell, userBookings[dateStr]);
         } else {
-          // Remove any badges if not booked
           let nameBadge = cell.querySelector('.booking-name-badge');
           if (nameBadge) nameBadge.remove();
           let priceBadge = cell.querySelector('.booking-price-badge');
@@ -682,14 +707,14 @@
       });
     }
     function updateBookedCount() {
-      if (!isSignedIn()) return;
-      const userBookings = getUserBookings();
+      if (!window.isSignedIn()) return;
+      const userBookings = window.getUserBookings();
       const count = Object.keys(userBookings).length;
       bookedCountCircle.textContent = count;
     }
     function updateRevenue() {
-      if (!isSignedIn()) return;
-      const userBookings = getUserBookings();
+      if (!window.isSignedIn()) return;
+      const userBookings = window.getUserBookings();
       let total = 0;
       let currentMonthTotal = 0;
       const now = new Date();
@@ -698,7 +723,6 @@
       Object.entries(userBookings).forEach(([date, bk]) => {
         const price = Number(bk.price) || 0;
         total += price;
-        // Compute monthly revenue for displayed month
         const d = new Date(date);
         if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
           currentMonthTotal += price;
@@ -708,9 +732,9 @@
       monthlyRevenue.textContent = "₹" + currentMonthTotal;
     }
     function updateTopBar() {
-      if (isSignedIn()) {
+      if (window.isSignedIn()) {
         summaryBar.style.display = "";
-        phoneDisplay.textContent = "📱 " + activePhone;
+        phoneDisplay.textContent = "📱 " + window.activePhone;
         signoutBtn.style.display = "";
         updateBookedCount();
         updateRevenue();
@@ -796,7 +820,7 @@
       const price = calculatePrice({
         bedrooms, largeBedrooms, dorm, theatreDorm, lawn, banquet
       });
-      const userBookings = getUserBookings();
+      const userBookings = window.getUserBookings();
       userBookings[selectedDate] = {
         booker,
         venue: selectedVenue,
@@ -809,16 +833,16 @@
         price,
         advance
       };
-      if (!isFullAccessUser()) {
-        setUserBookings(userBookings);
+      if (!window.isFullAccessUser()) {
+        window.setUserBookings(userBookings);
       } else {
-        let owner = findBookingOwner(selectedDate);
+        let owner = window.findBookingOwner(selectedDate);
         if (owner) {
-          bookingsByUser[owner][selectedDate] = userBookings[selectedDate];
+          window.bookingsByUser[owner][selectedDate] = userBookings[selectedDate];
+          window.setUserBookings(window.bookingsByUser[window.activePhone]);
         } else {
-          setUserBookings(userBookings);
+          window.setUserBookings(userBookings);
         }
-        saveToStorage();
       }
       calendar.unselect();
       updateDayCellClasses();
@@ -830,9 +854,9 @@
       venueModal.classList.remove("show");
     };
     function showDetailsModal(dateStr) {
-      const userBookings = getUserBookings();
+      const userBookings = window.getUserBookings();
       let booking = userBookings[dateStr];
-      let ownerPhone = findBookingOwner(dateStr);
+      let ownerPhone = window.findBookingOwner(dateStr);
       detailDate.textContent = new Date(dateStr).toDateString();
       detailBooker.textContent = booking.booker || "";
       detailVenue.textContent = VENUES[booking.venue]?.name || booking.venue || "";
@@ -845,11 +869,11 @@
       detailPrice.textContent = "₹" + (booking.price || 0);
       detailAdvance.textContent = "₹" + (booking.advance || 0);
 
-      if (isFullAccessUser() || ownerPhone === activePhone) {
+      if (window.isFullAccessUser() || ownerPhone === window.activePhone) {
         removeBookingBtn.style.display = "";
         removeBookingBtn.onclick = function() {
           if (confirm("Are you sure you want to remove this booking?")) {
-            removeBooking(dateStr);
+            window.removeBooking(dateStr);
             detailsModal.classList.remove("show");
             calendar.render();
             updateDayCellClasses();
@@ -857,10 +881,8 @@
             updateRevenue();
           }
         };
-        // Set default message phone number to booking.booker if it's a phone, else blank
         openMessageModalBtn.style.display = "";
         openMessageModalBtn.onclick = function() {
-          // Try to find a phone number in booking.booker
           let phoneCandidate = "";
           if (booking.booker && /^[+0-9]{10,15}$/.test(booking.booker.replace(/\s+/g,''))) {
             phoneCandidate = booking.booker.replace(/\s+/g,'');
@@ -879,7 +901,6 @@
     closeDetailsBtn.onclick = function() {
       detailsModal.classList.remove("show");
     };
-    // WhatsApp Message Modal logic
     sendMessageForm.onsubmit = function(e) {
       e.preventDefault();
       let number = msgRecipientNumber.value.trim();
@@ -889,7 +910,6 @@
         msgRecipientNumber.focus();
         return;
       }
-      // Remove + for wa.me link
       number = number.replace(/^\+/, '');
       let url = `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
       window.open(url, '_blank');
@@ -910,17 +930,6 @@
       signinPhone.value = "";
       signinPhone.focus();
     }
-    function doSignIn(phone) {
-      activePhone = phone;
-      if (!bookingsByUser[activePhone]) bookingsByUser[activePhone] = {};
-      saveToStorage();
-      signinModal.classList.remove("show");
-      updateTopBar();
-      calendar.render();
-      updateDayCellClasses();
-      updateBookedCount();
-      updateRevenue();
-    }
     signinForm.onsubmit = function(e) {
       e.preventDefault();
       const phone = signinPhone.value.trim();
@@ -930,17 +939,15 @@
         signinPhone.focus();
         return;
       }
-      doSignIn(phone);
+      window.doSignIn(phone);
     };
     signoutBtn.onclick = function() {
-      activePhone = null;
-      saveToStorage();
+      window.activePhone = null;
       updateTopBar();
       calendar.render();
       updateDayCellClasses();
     };
-    loadFromStorage();
-    if (!isSignedIn()) {
+    if (!window.isSignedIn()) {
       showSigninModal();
     } else {
       updateTopBar();
